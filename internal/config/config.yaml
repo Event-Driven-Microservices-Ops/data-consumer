@@ -1,0 +1,22 @@
+# server
+port: ":8081"
+read_header_timeout: 3s
+read_timeout: 5s
+write_timeout: 0s
+idle_timeout: 15s
+
+# data-generator
+generator_url: "http://localhost:8080/api/v1/data/stream"
+batch_size: 10
+interval: 2
+account: true
+event_type: "PASSWORD_CHANGED"
+fraud: true
+fraud_score: 50
+country_code: "POLAND"
+device_type: "MOBILE"
+transaction: true
+amount: 1000.0
+currency: "PLN"
+status: "FAILED"
+payment_type: "BANK_TRANSFER"
