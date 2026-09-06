@@ -10,20 +10,59 @@ import (
 )
 
 func main() {
+	dts := consumer.NewDataConsumerService()
 	cfg := loadConfig("internal/config/config.yaml")
 
-	parsedURL, err := url.Parse(cfg.GeneratorURL)
-	if err != nil {
-		log.Fatalf("Failed to parse generator URL: %v", err)
+	var mode string
+	if cfg.Mode == nil {
+		mode = "both"
+	} else {
+		mode = *cfg.Mode
 	}
 
-	parsedURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedURL).Encode()
-	finalURL := parsedURL.String()
+	switch mode {
+	case "batch":
+		log.Println("Starting in BATCH mode...")
+		runBatch(dts, cfg)
 
-	log.Printf("Connecting to generator: %s", finalURL)
+	case "stream":
+		log.Println("Starting in STREAM mode...")
+		runStream(dts, cfg)
+		select {}
 
-	dts := consumer.NewDataConsumerService()
-	if err := dts.CollectDataAsStream(finalURL); err != nil {
+	case "both":
+		log.Println("Starting in BOTH modes...")
+		runBatch(dts, cfg)
+		go runStream(dts, cfg)
+		select {}
+
+	default:
+		log.Fatalf("Unknown mode: %s. Use 'batch', 'stream', or 'both'.", mode)
+	}
+}
+
+func runBatch(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
+	parsedBatchURL, err := url.Parse(cfg.GeneratorBatchURL)
+	if err != nil {
+		log.Fatalf("Failed to parse batch URL: %v", err)
+	}
+	parsedBatchURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedBatchURL).Encode()
+
+	log.Printf("Connecting to generator (Batch): %s", parsedBatchURL.String())
+	if err := dts.CollectDataAsBatch(parsedBatchURL.String()); err != nil {
+		log.Printf("Batch consumer error: %v", err)
+	}
+}
+
+func runStream(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
+	parsedStreamURL, err := url.Parse(cfg.GeneratorStreamURL)
+	if err != nil {
+		log.Fatalf("Failed to parse stream URL: %v", err)
+	}
+	parsedStreamURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedStreamURL).Encode()
+
+	log.Printf("Connecting to generator (Stream): %s", parsedStreamURL.String())
+	if err := dts.CollectDataAsStream(parsedStreamURL.String()); err != nil {
 		log.Fatalf("Stream consumer error: %v", err)
 	}
 }
