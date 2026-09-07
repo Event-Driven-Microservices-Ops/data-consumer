@@ -3,6 +3,7 @@ package consumer
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -13,6 +14,42 @@ type DataConsumerService struct {
 
 func NewDataConsumerService() *DataConsumerService {
 	return &DataConsumerService{}
+}
+
+func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string) error {
+	req, err := http.NewRequest("GET", generatorURL, nil)
+	if err != nil {
+		log.Printf("Error during create request: %v", err)
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Cache-Control", "no-cache")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Error during create connection: %v", err)
+		return err
+	}
+	defer resp.Body.Close()
+
+	byteSlice, err := io.ReadAll(resp.Body)
+	if err != nil {
+		log.Printf("Error in reading request body")
+	}
+
+	var payload []EventPayload
+	err = json.Unmarshal(byteSlice, &payload)
+
+	if err != nil {
+		log.Println("Error in json unmarshal")
+		return err
+	}
+
+	log.Printf("Data from data-generator as batch: %+v", payload)
+
+	return nil
 }
 
 func (dts *DataConsumerService) CollectDataAsStream(generatorURL string) error {
@@ -50,7 +87,7 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string) error {
 					continue
 				}
 
-				log.Printf("Data from data-generator: %s", currentData)
+				log.Printf("Data from data-generator as stream: %s", currentData)
 
 				currentData = ""
 			}

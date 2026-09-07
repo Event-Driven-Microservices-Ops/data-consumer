@@ -15,20 +15,22 @@ type ServerConfig struct {
 	WriteTimeout      time.Duration `yaml:"write_timeout"`
 	IdleTimeout       time.Duration `yaml:"idle_timeout"`
 
-	GeneratorURL string   `yaml:"generator_url"`
-	BatchSize    *int     `yaml:"batch_size"`
-	Interval     *int     `yaml:"interval"`
-	Account      *bool    `yaml:"account"`
-	EventType    *string  `yaml:"event_type"`
-	Fraud        *bool    `yaml:"fraud"`
-	FraudScore   *int     `yaml:"fraud_score"`
-	CountryCode  *string  `yaml:"country_code"`
-	DeviceType   *string  `yaml:"device_type"`
-	Transaction  *bool    `yaml:"transaction"`
-	Amount       *float64 `yaml:"amount"`
-	Currency     *string  `yaml:"currency"`
-	Status       *string  `yaml:"status"`
-	PaymentType  *string  `yaml:"payment_type"`
+	GeneratorStreamURL string   `yaml:"generator_stream_url"`
+	GeneratorBatchURL  string   `yaml:"generator_batch_url"`
+	Mode               *string  `yaml:"mode"`
+	BatchSize          *int     `yaml:"batch_size"`
+	Interval           *int     `yaml:"interval"`
+	Account            *bool    `yaml:"account"`
+	EventType          *string  `yaml:"event_type"`
+	Fraud              *bool    `yaml:"fraud"`
+	FraudScore         *int     `yaml:"fraud_score"`
+	CountryCode        *string  `yaml:"country_code"`
+	DeviceType         *string  `yaml:"device_type"`
+	Transaction        *bool    `yaml:"transaction"`
+	Amount             *float64 `yaml:"amount"`
+	Currency           *string  `yaml:"currency"`
+	Status             *string  `yaml:"status"`
+	PaymentType        *string  `yaml:"payment_type"`
 }
 
 func Load(path string) (*ServerConfig, error) {

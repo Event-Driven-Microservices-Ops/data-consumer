@@ -6,7 +6,9 @@ write_timeout: 0s
 idle_timeout: 15s
 
 # data-generator
-generator_url: "http://localhost:8080/api/v1/data/stream"
+generator_stream_url: "http://localhost:8080/api/v1/data/stream"
+generator_batch_url: "http://localhost:8080/api/v1/data/batch"
+mode: "both"
 batch_size: 10
 interval: 2
 account: true
