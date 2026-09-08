@@ -1,0 +1,33 @@
+services:
+  data-generator:
+    build: ../data-generator
+    container_name: data-generator
+    ports:
+      - "8080:8080"
+    volumes:
+      # Mount configuration file into the container
+      - ../data-generator/internal/config/config.yaml:/app/internal/config/config.yaml
+      # Persistent volume for generator data (adjust /app/data to your app's path if needed)
+      - ../data-generator/data:/app/data
+    networks:
+      - app-net
+
+  data-consumer:
+    build: .
+    container_name: data-consumer
+    ports:
+      - "8081:8081"
+    environment:
+      - GENERATOR_STREAM_URL=http://data-generator:8080/api/v1/data/stream
+      - GENERATOR_BATCH_URL=http://data-generator:8080/api/v1/data/batch
+    volumes:
+      # Persistent volume for consumer data (adjust /app/data to your app's path if needed)
+      - ./data:/app/data
+    depends_on:
+      - data-generator
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    driver: bridge
