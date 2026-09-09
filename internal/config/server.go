@@ -14,6 +14,8 @@ type ServerConfig struct {
 	ReadTimeout       time.Duration `yaml:"read_timeout"`
 	WriteTimeout      time.Duration `yaml:"write_timeout"`
 	IdleTimeout       time.Duration `yaml:"idle_timeout"`
+	MaxRetries        *int          `yaml:"max_retries"`
+	DelayRetries      time.Duration `yaml:"delay_retries"`
 
 	GeneratorStreamURL string   `yaml:"generator_stream_url"`
 	GeneratorBatchURL  string   `yaml:"generator_batch_url"`

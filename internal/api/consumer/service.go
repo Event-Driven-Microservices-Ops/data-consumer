@@ -7,6 +7,9 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
+
+	"github.com/urbaniakmichal/data-consumer/internal/config"
 )
 
 type DataConsumerService struct {
@@ -16,7 +19,13 @@ func NewDataConsumerService() *DataConsumerService {
 	return &DataConsumerService{}
 }
 
-func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string) error {
+func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string, cfg *config.ServerConfig) error {
+	retryRes, retryErr := fetchWithRetry(generatorURL, cfg)
+	if retryErr != nil {
+		log.Printf("Error during fetching request: %v", retryErr)
+		return retryErr
+	}
+
 	req, err := http.NewRequest("GET", generatorURL, nil)
 	if err != nil {
 		log.Printf("Error during create request: %v", err)
@@ -26,15 +35,9 @@ func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string) error {
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cache-Control", "no-cache")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Error during create connection: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
+	defer retryRes.Body.Close()
 
-	byteSlice, err := io.ReadAll(resp.Body)
+	byteSlice, err := io.ReadAll(retryRes.Body)
 	if err != nil {
 		log.Printf("Error in reading request body")
 	}
@@ -52,7 +55,13 @@ func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string) error {
 	return nil
 }
 
-func (dts *DataConsumerService) CollectDataAsStream(generatorURL string) error {
+func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *config.ServerConfig) error {
+	retryRes, retryErr := fetchWithRetry(generatorURL, cfg)
+	if retryErr != nil {
+		log.Printf("Error during fetching request: %v", retryErr)
+		return retryErr
+	}
+
 	req, err := http.NewRequest("GET", generatorURL, nil)
 	if err != nil {
 		log.Printf("Error during create request: %v", err)
@@ -63,16 +72,10 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string) error {
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Connection", "keep-alive")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Printf("Error during create connection: %v", err)
-		return err
-	}
-	defer resp.Body.Close()
+	defer retryRes.Body.Close()
 
 	var currentData string
-	scanner := bufio.NewScanner(resp.Body)
+	scanner := bufio.NewScanner(retryRes.Body)
 
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -105,4 +108,23 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string) error {
 	}
 
 	return nil
+}
+
+func fetchWithRetry(url string, cfg *config.ServerConfig) (*http.Response, error) {
+	var resp *http.Response
+	var err error
+	currentDelay := cfg.DelayRetries
+
+	for attempt := 1; attempt <= *cfg.MaxRetries; attempt++ {
+		log.Printf("Attempt %d/%d: Connecting to generator...", attempt, *cfg.MaxRetries)
+		resp, err = http.Get(url)
+		if err == nil {
+			return resp, nil
+		}
+
+		log.Printf("Connection failed: %v. Retrying in %v...", err, currentDelay)
+		time.Sleep(currentDelay)
+	}
+
+	return nil, err
 }
