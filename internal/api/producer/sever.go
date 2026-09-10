@@ -7,11 +7,7 @@ import (
 )
 
 func NewServer(cs *config.ServerConfig) *http.Server {
-	// s := NewService()
-	// rh := NewRestHandler(s)
-
 	mux := http.NewServeMux()
-	// mux.HandleFunc("GET "+ApiPathDataAsStream, rh.GetDataAsBatch)
 
 	return &http.Server{
 		Addr:              cs.Port,

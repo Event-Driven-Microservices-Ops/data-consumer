@@ -4,14 +4,15 @@ import (
 	"log"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/urbaniakmichal/data-consumer/internal/api/consumer"
 	"github.com/urbaniakmichal/data-consumer/internal/config"
 )
 
 func main() {
-	dts := consumer.NewDataConsumerService()
 	cfg := loadConfig("internal/config/config.yaml")
+	dts := consumer.NewDataConsumerService()
 
 	var mode string
 	if cfg.Mode == nil {
@@ -49,7 +50,7 @@ func runBatch(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
 	parsedBatchURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedBatchURL).Encode()
 
 	log.Printf("Connecting to generator (Batch): %s", parsedBatchURL.String())
-	if err := dts.CollectDataAsBatch(parsedBatchURL.String()); err != nil {
+	if err := dts.CollectDataAsBatch(parsedBatchURL.String(), cfg); err != nil {
 		log.Printf("Batch consumer error: %v", err)
 	}
 }
@@ -61,9 +62,12 @@ func runStream(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
 	}
 	parsedStreamURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedStreamURL).Encode()
 
-	log.Printf("Connecting to generator (Stream): %s", parsedStreamURL.String())
-	if err := dts.CollectDataAsStream(parsedStreamURL.String()); err != nil {
-		log.Fatalf("Stream consumer error: %v", err)
+	for {
+		log.Printf("Connecting to generator (Stream): %s", parsedStreamURL.String())
+		if err := dts.CollectDataAsStream(parsedStreamURL.String(), cfg); err != nil {
+			log.Printf("Stream consumer error: %v. Reconnecting in %v...", err, cfg.DelayRetries)
+			time.Sleep(cfg.DelayRetries)
+		}
 	}
 }
 
