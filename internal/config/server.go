@@ -19,6 +19,7 @@ type ServerConfig struct {
 
 	GeneratorStreamURL string   `yaml:"generator_stream_url"`
 	GeneratorBatchURL  string   `yaml:"generator_batch_url"`
+	DatabaseURL        string   `yaml:"database_url"`
 	Mode               *string  `yaml:"mode"`
 	BatchSize          *int     `yaml:"batch_size"`
 	Interval           *int     `yaml:"interval"`

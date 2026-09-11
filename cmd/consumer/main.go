@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 
@@ -76,6 +77,20 @@ func loadConfig(path string) *config.ServerConfig {
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
+
+	if envStreamURL := os.Getenv("GENERATOR_STREAM_URL"); envStreamURL != "" {
+		cfg.GeneratorStreamURL = envStreamURL
+	}
+	if envBatchURL := os.Getenv("GENERATOR_BATCH_URL"); envBatchURL != "" {
+		cfg.GeneratorBatchURL = envBatchURL
+	}
+	if envPort := os.Getenv("PORT"); envPort != "" {
+		cfg.Port = ":" + envPort
+	}
+	if envDBURL := os.Getenv("DB_URL"); envDBURL != "" {
+		cfg.DatabaseURL = envDBURL
+	}
+
 	return cfg
 }
 
