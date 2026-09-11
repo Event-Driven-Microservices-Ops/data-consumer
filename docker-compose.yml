@@ -5,29 +5,76 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      # Mount configuration file into the container
       - ../data-generator/internal/config/config.yaml:/app/internal/config/config.yaml
-      # Persistent volume for generator data (adjust /app/data to your app's path if needed)
-      - ../data-generator/data:/app/data
+      - ../data-generator/data:/app-data-generator/data
     networks:
-      - app-net
+      - event-driver-app-net
 
   data-consumer:
     build: .
     container_name: data-consumer
+    env_file:
+      - path: ./.env
+        required: true
     ports:
-      - "8081:8081"
+      - "${PORT}:8081"
     environment:
-      - GENERATOR_STREAM_URL=http://data-generator:8080/api/v1/data/stream
-      - GENERATOR_BATCH_URL=http://data-generator:8080/api/v1/data/batch
+      - ENV=${ENV}
+      - GENERATOR_BASE_URL=${GENERATOR_BASE_URL}
+      - GENERATOR_STREAM_URL=${GENERATOR_STREAM_URL}
+      - GENERATOR_BATCH_URL=${GENERATOR_BATCH_URL}
+      - DB_URL=${DB_URL}
     volumes:
-      # Persistent volume for consumer data (adjust /app/data to your app's path if needed)
-      - ./data:/app/data
+      - ../db-data/data:/app-data-consumer/data
     depends_on:
       - data-generator
+      - mongodb
     networks:
-      - app-net
+      - event-driver-app-net
+
+  mongodb:
+    image: mongodb/mongodb-atlas-local
+    hostname: mongodb
+    container_name: mongodb
+    env_file:
+      - path: ./.env
+        required: true
+    environment:
+      - MONGODB_INITDB_ROOT_USERNAME=${DB_USER}
+      - MONGODB_INITDB_ROOT_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "27017:27017"
+    volumes:
+      - db:/data/db
+      - configdb:/data/configdb
+      - mongot:/data/mongot
+    networks:
+      event-driver-app-net:
+        aliases:
+          - mongo
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: mongo-express
+    restart: always
+    ports:
+      - "8082:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=admin
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin
+      - ME_CONFIG_MONGODB_SERVER=mongodb
+      - ME_CONFIG_MONGODB_PORT=27017
+    networks:
+      - event-driver-app-net
 
 networks:
-  app-net:
+  event-driver-app-net:
     driver: bridge
+
+volumes:
+  db-data:
+  db:
+  configdb:
+  mongot:
