@@ -1,3 +1,5 @@
+name: event-driven-ops
+
 services:
   data-generator:
     build: ../data-generator
