@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/url"
 	"os"
@@ -9,12 +10,41 @@ import (
 
 	"github.com/urbaniakmichal/data-consumer/internal/api/consumer"
 	"github.com/urbaniakmichal/data-consumer/internal/config"
+	"github.com/urbaniakmichal/data-consumer/internal/database"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func main() {
 	cfg := loadConfig("internal/config/config.yaml")
-	dts := consumer.NewDataConsumerService()
+	mongoClient := connectToMongo(cfg)
+	dbService := database.NewDataBaseService(cfg, mongoClient)
+	dts := consumer.NewDataConsumerService(dbService)
 
+	setMode(cfg, dts)
+}
+
+func connectToMongo(cfg *config.Config) *mongo.Client {
+	opts := options.Client().ApplyURI(cfg.DatabaseURL)
+
+	client, err := mongo.Connect(opts)
+	if err != nil {
+		log.Fatalf("Failed to connect to mongodb: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err = client.Ping(ctx, nil)
+	if err != nil {
+		log.Fatalf("Pinged database. You failure connected to MongoDB!: %v", err)
+	}
+
+	return client
+}
+
+func setMode(cfg *config.Config, dts *consumer.DataConsumerService) {
 	var mode string
 	if cfg.Mode == nil {
 		mode = "both"
@@ -43,7 +73,7 @@ func main() {
 	}
 }
 
-func runBatch(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
+func runBatch(dts *consumer.DataConsumerService, cfg *config.Config) {
 	parsedBatchURL, err := url.Parse(cfg.GeneratorBatchURL)
 	if err != nil {
 		log.Fatalf("Failed to parse batch URL: %v", err)
@@ -56,7 +86,7 @@ func runBatch(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
 	}
 }
 
-func runStream(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
+func runStream(dts *consumer.DataConsumerService, cfg *config.Config) {
 	parsedStreamURL, err := url.Parse(cfg.GeneratorStreamURL)
 	if err != nil {
 		log.Fatalf("Failed to parse stream URL: %v", err)
@@ -72,7 +102,7 @@ func runStream(dts *consumer.DataConsumerService, cfg *config.ServerConfig) {
 	}
 }
 
-func loadConfig(path string) *config.ServerConfig {
+func loadConfig(path string) *config.Config {
 	cfg, err := config.Load(path)
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
@@ -94,7 +124,7 @@ func loadConfig(path string) *config.ServerConfig {
 	return cfg
 }
 
-func dynamicMappingAllFlagsToQueryParameters(cfg *config.ServerConfig, url *url.URL) url.Values {
+func dynamicMappingAllFlagsToQueryParameters(cfg *config.Config, url *url.URL) url.Values {
 	query := url.Query()
 	if cfg.BatchSize != nil {
 		query.Set("batch_size", strconv.Itoa(*cfg.BatchSize))

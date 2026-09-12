@@ -3,6 +3,7 @@ package consumer
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -10,41 +11,40 @@ import (
 	"time"
 
 	"github.com/urbaniakmichal/data-consumer/internal/config"
+	"github.com/urbaniakmichal/data-consumer/internal/database"
 )
 
 type DataConsumerService struct {
+	dbService *database.DataBaseService
 }
 
-func NewDataConsumerService() *DataConsumerService {
-	return &DataConsumerService{}
+func NewDataConsumerService(dS *database.DataBaseService) *DataConsumerService {
+	return &DataConsumerService{
+		dbService: dS,
+	}
 }
 
-func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string, cfg *config.ServerConfig) error {
-	retryRes, retryErr := fetchWithRetry(generatorURL, cfg)
+func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string, cfg *config.Config) error {
+	headers := map[string]string{
+		"Content-Type":  "application/json",
+		"Cache-Control": "no-cache",
+	}
+
+	retryRes, retryErr := fetchWithRetry(generatorURL, headers, cfg)
 	if retryErr != nil {
 		log.Printf("Error during fetching request: %v", retryErr)
 		return retryErr
 	}
-
-	req, err := http.NewRequest("GET", generatorURL, nil)
-	if err != nil {
-		log.Printf("Error during create request: %v", err)
-		return err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Cache-Control", "no-cache")
-
 	defer retryRes.Body.Close()
 
 	byteSlice, err := io.ReadAll(retryRes.Body)
 	if err != nil {
-		log.Printf("Error in reading request body")
+		log.Printf("Error in reading request body: %v", err)
+		return err
 	}
 
 	var payload []EventPayload
 	err = json.Unmarshal(byteSlice, &payload)
-
 	if err != nil {
 		log.Println("Error in json unmarshal")
 		return err
@@ -55,23 +55,18 @@ func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string, cfg *con
 	return nil
 }
 
-func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *config.ServerConfig) error {
-	retryRes, retryErr := fetchWithRetry(generatorURL, cfg)
+func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *config.Config) error {
+	headers := map[string]string{
+		"Accept":        "text/event-stream",
+		"Cache-Control": "no-cache",
+		"Connection":    "keep-alive",
+	}
+
+	retryRes, retryErr := fetchWithRetry(generatorURL, headers, cfg)
 	if retryErr != nil {
 		log.Printf("Error during fetching request: %v", retryErr)
 		return retryErr
 	}
-
-	req, err := http.NewRequest("GET", generatorURL, nil)
-	if err != nil {
-		log.Printf("Error during create request: %v", err)
-		return err
-	}
-
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Connection", "keep-alive")
-
 	defer retryRes.Body.Close()
 
 	var currentData string
@@ -91,7 +86,6 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *co
 				}
 
 				log.Printf("Data from data-generator as stream: %s", currentData)
-
 				currentData = ""
 			}
 			continue
@@ -110,21 +104,45 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *co
 	return nil
 }
 
-func fetchWithRetry(url string, cfg *config.ServerConfig) (*http.Response, error) {
+func fetchWithRetry(url string, headers map[string]string, cfg *config.Config) (*http.Response, error) {
 	var resp *http.Response
-	var err error
+	var lastErr error
 	currentDelay := cfg.DelayRetries
+	maxRetries := 5
+	if cfg.MaxRetries != nil {
+		maxRetries = *cfg.MaxRetries
+	}
 
-	for attempt := 1; attempt <= *cfg.MaxRetries; attempt++ {
-		log.Printf("Attempt %d/%d: Connecting to generator...", attempt, *cfg.MaxRetries)
-		resp, err = http.Get(url)
-		if err == nil {
-			return resp, nil
+	client := &http.Client{}
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		log.Printf("Attempt %d/%d: Connecting to generator...", attempt, maxRetries)
+
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
+			log.Printf("Error during create request: %v", err)
+			return nil, err
 		}
 
-		log.Printf("Connection failed: %v. Retrying in %v...", err, currentDelay)
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		resp, err = client.Do(req)
+		if err == nil {
+			if resp.StatusCode == http.StatusOK {
+				return resp, nil
+			}
+			lastErr = fmt.Errorf("server returned status: %d", resp.StatusCode)
+			log.Printf("Connection failed with status: %d. Retrying in %v...", resp.StatusCode, currentDelay)
+			resp.Body.Close()
+		} else {
+			lastErr = err
+			log.Printf("Connection failed: %v. Retrying in %v...", err, currentDelay)
+		}
+
 		time.Sleep(currentDelay)
 	}
 
-	return nil, err
+	return nil, lastErr
 }

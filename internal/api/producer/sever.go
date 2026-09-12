@@ -6,7 +6,7 @@ import (
 	"github.com/urbaniakmichal/data-consumer/internal/config"
 )
 
-func NewServer(cs *config.ServerConfig) *http.Server {
+func NewServer(cs *config.Config) *http.Server {
 	mux := http.NewServeMux()
 
 	return &http.Server{

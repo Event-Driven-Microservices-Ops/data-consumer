@@ -24,3 +24,8 @@ amount: 1000.0
 currency: "PLN"
 status: "FAILED"
 payment_type: "BANK_TRANSFER"
+
+# mongo
+database_name: "event_driver"
+stream_collection: stream_data
+batch_collection: batch_data
