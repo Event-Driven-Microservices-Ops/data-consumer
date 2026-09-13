@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -52,6 +53,15 @@ func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string, cfg *con
 
 	log.Printf("Data from data-generator as batch: %+v", payload)
 
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = dts.dbService.InsertBatch(ctx, prepareBatchPayloadToInsert(payload))
+	if err != nil {
+		log.Printf("Error inserting batch into database: %v", err)
+		return err
+	}
+
 	return nil
 }
 
@@ -86,6 +96,17 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *co
 				}
 
 				log.Printf("Data from data-generator as stream: %s", currentData)
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+
+				for _, event := range payload {
+					err = dts.dbService.InsertStream(ctx, event)
+					if err != nil {
+						log.Printf("Error inserting stream event into database: %v", err)
+					}
+				}
+				cancel()
+
 				currentData = ""
 			}
 			continue
@@ -145,4 +166,13 @@ func fetchWithRetry(url string, headers map[string]string, cfg *config.Config) (
 	}
 
 	return nil, lastErr
+}
+
+func prepareBatchPayloadToInsert(payload []EventPayload) []any {
+	documents := make([]any, len(payload))
+	for i, v := range payload {
+		documents[i] = v
+	}
+
+	return documents
 }
