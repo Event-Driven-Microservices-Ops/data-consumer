@@ -2,7 +2,6 @@ package consumer
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,68 +10,84 @@ import (
 	"strings"
 	"time"
 
+	"github.com/urbaniakmichal/data-consumer/internal/broker/producer"
 	"github.com/urbaniakmichal/data-consumer/internal/config"
-	"github.com/urbaniakmichal/data-consumer/internal/database"
 )
 
 type DataConsumerService struct {
-	dbService *database.DataBaseService
+	kS *producer.KafkaService
 }
 
-func NewDataConsumerService(dS *database.DataBaseService) *DataConsumerService {
+func NewDataConsumerService(kS *producer.KafkaService) *DataConsumerService {
 	return &DataConsumerService{
-		dbService: dS,
+		kS: kS,
 	}
 }
 
-func (dts *DataConsumerService) CollectDataAsBatch(generatorURL string, cfg *config.Config) error {
+func (dts *DataConsumerService) RunBatch(cfg *config.Config, url string) {
+	err, payload := collectDataAsBatch(cfg, url)
+	if err != nil {
+		log.Printf("Batch consumer error: %v", err)
+		return
+	}
+
+	anyPayload := preparePayload(payload)
+	dts.kS.Publish(anyPayload)
+}
+
+func (dts *DataConsumerService) RunStream(cfg *config.Config, url string) {
+	for {
+		err := collectDataAsStream(cfg, url, func(payload []EventPayload) {
+			anyPayload := preparePayload(payload)
+			dts.kS.Publish(anyPayload)
+		})
+
+		if err != nil {
+			log.Printf("Stream consumer error: %v. Reconnecting in %v...", err, cfg.DelayRetries)
+			time.Sleep(cfg.DelayRetries)
+		}
+	}
+}
+
+func collectDataAsBatch(cfg *config.Config, url string) (error, []EventPayload) {
 	headers := map[string]string{
 		"Content-Type":  "application/json",
 		"Cache-Control": "no-cache",
 	}
 
-	retryRes, retryErr := fetchWithRetry(generatorURL, headers, cfg)
+	retryRes, retryErr := fetchWithRetry(url, headers, cfg)
 	if retryErr != nil {
 		log.Printf("Error during fetching request: %v", retryErr)
-		return retryErr
+		return retryErr, nil
 	}
 	defer retryRes.Body.Close()
 
 	byteSlice, err := io.ReadAll(retryRes.Body)
 	if err != nil {
 		log.Printf("Error in reading request body: %v", err)
-		return err
+		return err, nil
 	}
 
 	var payload []EventPayload
 	err = json.Unmarshal(byteSlice, &payload)
 	if err != nil {
 		log.Println("Error in json unmarshal")
-		return err
+		return err, nil
 	}
 
 	log.Printf("Data from data-generator as batch: %+v", payload)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err = dts.dbService.InsertBatch(ctx, prepareBatchPayloadToInsert(payload))
-	if err != nil {
-		log.Printf("Error inserting batch into database: %v", err)
-		return err
-	}
-
-	return nil
+	return nil, payload
 }
 
-func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *config.Config) error {
+func collectDataAsStream(cfg *config.Config, url string, onData func([]EventPayload)) error {
 	headers := map[string]string{
 		"Accept":        "text/event-stream",
 		"Cache-Control": "no-cache",
 		"Connection":    "keep-alive",
 	}
 
-	retryRes, retryErr := fetchWithRetry(generatorURL, headers, cfg)
+	retryRes, retryErr := fetchWithRetry(url, headers, cfg)
 	if retryErr != nil {
 		log.Printf("Error during fetching request: %v", retryErr)
 		return retryErr
@@ -88,24 +103,21 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *co
 		if line == "" {
 			if currentData != "" {
 				var payload []EventPayload
-
 				err := json.Unmarshal([]byte(currentData), &payload)
 				if err != nil {
-					log.Printf("Error during parse JSON: %v", err)
-					continue
+					var singleEvent EventPayload
+					errSingle := json.Unmarshal([]byte(currentData), &singleEvent)
+					if errSingle != nil {
+						log.Printf("Error during parse JSON: %v", err)
+						currentData = ""
+						continue
+					}
+					payload = []EventPayload{singleEvent}
 				}
 
 				log.Printf("Data from data-generator as stream: %s", currentData)
 
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-
-				for _, event := range payload {
-					err = dts.dbService.InsertStream(ctx, event)
-					if err != nil {
-						log.Printf("Error inserting stream event into database: %v", err)
-					}
-				}
-				cancel()
+				onData(payload)
 
 				currentData = ""
 			}
@@ -117,12 +129,7 @@ func (dts *DataConsumerService) CollectDataAsStream(generatorURL string, cfg *co
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		log.Printf("Error during read stream: %v", err)
-		return err
-	}
-
-	return nil
+	return scanner.Err()
 }
 
 func fetchWithRetry(url string, headers map[string]string, cfg *config.Config) (*http.Response, error) {
@@ -168,11 +175,11 @@ func fetchWithRetry(url string, headers map[string]string, cfg *config.Config) (
 	return nil, lastErr
 }
 
-func prepareBatchPayloadToInsert(payload []EventPayload) []any {
-	documents := make([]any, len(payload))
+func preparePayload(payload []EventPayload) []any {
+	anyPayload := make([]any, len(payload))
 	for i, v := range payload {
-		documents[i] = v
+		anyPayload[i] = v
 	}
 
-	return documents
+	return anyPayload
 }

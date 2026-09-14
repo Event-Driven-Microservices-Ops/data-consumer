@@ -6,42 +6,36 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"time"
 
+	"github.com/segmentio/kafka-go"
 	"github.com/urbaniakmichal/data-consumer/internal/api/consumer"
+	"github.com/urbaniakmichal/data-consumer/internal/broker/producer"
 	"github.com/urbaniakmichal/data-consumer/internal/config"
-	"github.com/urbaniakmichal/data-consumer/internal/database"
-
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 func main() {
 	cfg := loadConfig("internal/config/config.yaml")
-	mongoClient := connectToMongo(cfg)
-	dbService := database.NewDataBaseService(cfg, mongoClient)
-	dts := consumer.NewDataConsumerService(dbService)
+
+	writer, ctx := setUpProducer()
+	defer writer.Close()
+
+	kS := producer.NewKafkaService(ctx, writer)
+
+	dts := consumer.NewDataConsumerService(kS)
 
 	setMode(cfg, dts)
 }
 
-func connectToMongo(cfg *config.Config) *mongo.Client {
-	opts := options.Client().ApplyURI(cfg.DatabaseURL)
-
-	client, err := mongo.Connect(opts)
-	if err != nil {
-		log.Fatalf("Failed to connect to mongodb: %v", err)
+func setUpProducer() (*kafka.Writer, context.Context) {
+	writer := &kafka.Writer{
+		Addr:         kafka.TCP("kafka1:9092"),
+		Topic:        "data",
+		Balancer:     &kafka.LeastBytes{},
+		RequiredAcks: kafka.RequireAll,
+		Async:        false,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	err = client.Ping(ctx, nil)
-	if err != nil {
-		log.Fatalf("Pinged database. You failure connected to MongoDB!: %v", err)
-	}
-
-	return client
+	return writer, context.Background()
 }
 
 func setMode(cfg *config.Config, dts *consumer.DataConsumerService) {
@@ -55,17 +49,17 @@ func setMode(cfg *config.Config, dts *consumer.DataConsumerService) {
 	switch mode {
 	case "batch":
 		log.Println("Starting in BATCH mode...")
-		runBatch(dts, cfg)
+		dts.RunBatch(cfg, parsedURL(cfg, cfg.GeneratorBatchURL))
 
 	case "stream":
 		log.Println("Starting in STREAM mode...")
-		runStream(dts, cfg)
+		dts.RunStream(cfg, parsedURL(cfg, cfg.GeneratorStreamURL))
 		select {}
 
 	case "both":
 		log.Println("Starting in BOTH modes...")
-		runBatch(dts, cfg)
-		go runStream(dts, cfg)
+		dts.RunBatch(cfg, parsedURL(cfg, cfg.GeneratorBatchURL))
+		go dts.RunStream(cfg, parsedURL(cfg, cfg.GeneratorStreamURL))
 		select {}
 
 	default:
@@ -73,33 +67,15 @@ func setMode(cfg *config.Config, dts *consumer.DataConsumerService) {
 	}
 }
 
-func runBatch(dts *consumer.DataConsumerService, cfg *config.Config) {
-	parsedBatchURL, err := url.Parse(cfg.GeneratorBatchURL)
+func parsedURL(cfg *config.Config, rawURL string) string {
+	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
 		log.Fatalf("Failed to parse batch URL: %v", err)
 	}
-	parsedBatchURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedBatchURL).Encode()
+	parsedURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedURL).Encode()
 
-	log.Printf("Connecting to generator (Batch): %s", parsedBatchURL.String())
-	if err := dts.CollectDataAsBatch(parsedBatchURL.String(), cfg); err != nil {
-		log.Printf("Batch consumer error: %v", err)
-	}
-}
-
-func runStream(dts *consumer.DataConsumerService, cfg *config.Config) {
-	parsedStreamURL, err := url.Parse(cfg.GeneratorStreamURL)
-	if err != nil {
-		log.Fatalf("Failed to parse stream URL: %v", err)
-	}
-	parsedStreamURL.RawQuery = dynamicMappingAllFlagsToQueryParameters(cfg, parsedStreamURL).Encode()
-
-	for {
-		log.Printf("Connecting to generator (Stream): %s", parsedStreamURL.String())
-		if err := dts.CollectDataAsStream(parsedStreamURL.String(), cfg); err != nil {
-			log.Printf("Stream consumer error: %v. Reconnecting in %v...", err, cfg.DelayRetries)
-			time.Sleep(cfg.DelayRetries)
-		}
-	}
+	log.Printf("Connecting to generator %s", parsedURL.String())
+	return parsedURL.String()
 }
 
 func loadConfig(path string) *config.Config {
