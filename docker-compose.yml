@@ -13,13 +13,13 @@ services:
       - event-driver-app-net
 
   data-consumer:
-    build: .
+    build: ../data-consumer
     container_name: data-consumer
     env_file:
       - path: ./.env
         required: true
     ports:
-      - "${PORT}:8081"
+      - "8081:8081"
     environment:
       - ENV=${ENV}
       - GENERATOR_BASE_URL=${GENERATOR_BASE_URL}
@@ -27,10 +27,28 @@ services:
       - GENERATOR_BATCH_URL=${GENERATOR_BATCH_URL}
       - DB_URL=${DB_URL}
     volumes:
-      - consumer-data:/app-data-consumer/data  # <--- Zmieniono na nazwany wolumen
+      - consumer-data:/app-data-consumer/data
     depends_on:
       data-generator:
         condition: service_started
+      mongodb:
+        condition: service_started
+      kafka1:
+        condition: service_healthy
+    networks:
+      - event-driver-app-net
+
+  data-worker:
+    build: ../data-worker
+    container_name: data-worker
+    ports:
+      - "8083:8083"
+    environment:
+      - DB_URL=mongodb://admin:admin@mongodb:27017/?authSource=admin&directConnection=true
+      - DB_NAME=event_driver
+      - STREAM_COLLECTION=stream_data
+      - BATCH_COLLECTION=batch_data
+    depends_on:
       mongodb:
         condition: service_started
       kafka1:
